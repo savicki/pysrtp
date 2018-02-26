@@ -9,7 +9,7 @@ srtp.py contains a Context class, which derives keystreams for common labels. Co
 
 A Pythonic version of srtp-decrypt is also present, so you can check srtp.Context usage.
 
-To decipher the sample trace, use the command line: ./srtp-decrypt.py | text2pcap -t "%H:%M:%S." -u 10000,10000 - - > marseillaise-rtp.pcap. It will create a pcap containing unprotected RTP packets which can be listen using Wireshark features.
+To decipher the sample trace, use the command line: ./srtp-decrypt.py -k 'aSBrbm93IGFsbCB5b3VyIGxpdHRsZSBzZWNyZXRz' -file 'marseillaise-srtp.pcap' -offset 42 | text2pcap -t "%H:%M:%S." -u 10000,10000 - - > marseillaise-rtp.pcap. It will create a pcap containing unprotected RTP packets which can be listen using Wireshark features.
 
 ## Test vectors
 By executing srtp.py on its own, you will execute self-contained tests, based on AES128 HMACSHA1-80, and AES256 HMACSHA1-80.

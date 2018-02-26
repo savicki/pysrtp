@@ -6,7 +6,7 @@ from srtp import Context, rtp_pop
 from base64 import b64decode
 import datetime
 
-import sys
+import sys, argparse
 
 Pkt = namedtuple('Pkt', 'ts caplen bytes')
 
@@ -36,7 +36,7 @@ def gen_packets(name, offset=0):
     assert(len(phdr) == 16)
 
     (sec, usec, caplen, l) = unpack(swapped + 'IIII', phdr)
-    content = f.read(caplen)
+    content = f.read(caplen) # size of whole frame
     assert(len(content) == caplen)
 
     assert(len(content) == caplen)
@@ -52,14 +52,22 @@ def pkt_dump(pkt):
   for i in range(0, len(content), 16):
     print('%04x  %s' % (i, ' '.join(['%02x' % c for c in content[i:i+16]])))
 
-raw = b64decode('aSBrbm93IGFsbCB5b3VyIGxpdHRsZSBzZWNyZXRz')
+parser = argparse.ArgumentParser()
+parser.add_argument('-file', '--in-file', help='encrypted SRTP .pcap', type=str, required=True)
+parser.add_argument('-k', '--key', help='key material base64 encoded', type=str, required=True)
+parser.add_argument('-offset', '--rtp-offset', help='offset to RTP header, default 42 bytes', type=int, required=False, default=42)
+
+
+args = parser.parse_args()
+
+raw = b64decode(args.key)
 keylen = len(raw)-14
 assert(keylen in [16, 24, 32])
 
 (key, salt) = (raw[:keylen], raw[keylen:])
-ctx = Context(key, salt, 10)
+ctx = Context(key, salt, 10) # auth tag length
 
-for pkt in gen_packets('marseillaise-srtp.pcap', 42):
+for pkt in gen_packets(args.in_file, args.rtp_offset):
   plain = ctx.srtp_unprotect(pkt.bytes)
   assert(plain)
 

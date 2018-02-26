@@ -25,7 +25,7 @@ def div(a, t):
   if t == 0: return 0
   else: return a//t
 
-Rtp = namedtuple('Rtp', 'V P X CC M PT seq ts ssrc csrcs hdr payload')
+Rtp = namedtuple('Rtp', 'V P X CC M PT seq ts ssrc csrcs ext hdr payload')
 
 def rtp_pop(b):
   f = io.BytesIO(b)
@@ -41,7 +41,6 @@ def rtp_pop(b):
   P = (a & 0x20)>>5
   X = (a & 0x10)>>4
   CC = (a & 0x0f)
-  assert(V == 0 or (V == 2 and X == 0))
 
   M = (b & 0x80)>>7
   PT = (b & 0x7f)
@@ -53,9 +52,19 @@ def rtp_pop(b):
     hdr += csrc
     csrcs.append(unpack('!I', csrc)[0])
 
+  ext = []
+  if X:
+    data = f.read(4)
+    hdr += data
+
+    (ext_id, ext_len) = unpack('!HH', data)
+    if ext_len:
+      ext = f.read(ext_len*4)
+      hdr += ext
+
   payload = f.read()
 
-  return Rtp(V, P, X, CC, M, PT, seq, ts, ssrc, csrcs, hdr, payload)
+  return Rtp(V, P, X, CC, M, PT, seq, ts, ssrc, csrcs, ext, hdr, payload)
 
 def kdf(key, salt, label, n, index=0):
   assert(0 <= label and label <= 2**8-1)
@@ -115,7 +124,6 @@ def keystream(key, salt, ssrc, seq, n, roc=0):
 # data shall include rtp header as sent
 def crypt(key, salt, data):
   rtp = rtp_pop(data)
-  assert(rtp.V == 0 or (rtp.V == 2 and rtp.X == 0))
 
   n = len(rtp.payload)
   ks = keystream(key, salt, rtp.ssrc, rtp.seq, n, 0)
@@ -161,11 +169,12 @@ class Context:
     ciphered = crypt(self.srtp_cipher_key, self.srtp_salt, data)
     return ciphered + auth(self.srtp_auth_key, ciphered)[:self.taglen]
 
-  def srtp_unprotect(self, data):
+  def srtp_unprotect(self, data): # 'data' point to RTP header
     ciphered, tag = data[:-self.taglen], data[-self.taglen:]
     assert(len(tag) == self.taglen)
 
     if auth(self.srtp_auth_key, ciphered)[:self.taglen] != tag:
+      print('[srtp_unprotect] MAC mismatch!')
       return
 
     plain = crypt(self.srtp_cipher_key, self.srtp_salt, ciphered)

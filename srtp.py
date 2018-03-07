@@ -27,20 +27,25 @@ def div(a, t):
 
 Rtp = namedtuple('Rtp', 'V P X CC M PT seq ts ssrc csrcs ext hdr payload')
 
-def rtp_pop(b):
+def rtp_pop(b, ops = None):
+  keep_X = ops.keep_ext if ops else True
+
   f = io.BytesIO(b)
 
   hdr = b''
 
   data = f.read(12)
   assert(len(data) == 12)
-  hdr += data
   (a, b, seq, ts, ssrc) = unpack('!BBHII', data)
 
   V = (a & 0xc0)>>6
   P = (a & 0x20)>>5
   X = (a & 0x10)>>4
   CC = (a & 0x0f)
+
+  if not keep_X:
+    a = a & ~0x10
+  hdr += pack('!BBHII', a, b, seq, ts, ssrc)
 
   M = (b & 0x80)>>7
   PT = (b & 0x7f)
@@ -55,12 +60,16 @@ def rtp_pop(b):
   ext = []
   if X:
     data = f.read(4)
-    hdr += data
+    if keep_X:
+      hdr += data
 
     (ext_id, ext_len) = unpack('!HH', data)
     if ext_len:
       ext = f.read(ext_len*4)
-      hdr += ext
+      if keep_X:
+        hdr += ext
+
+    X = X if keep_X else 0
 
   payload = f.read()
 
@@ -122,8 +131,8 @@ def keystream(key, salt, ssrc, seq, n, roc=0):
   return data[:n]
 
 # data shall include rtp header as sent
-def crypt(key, salt, data):
-  rtp = rtp_pop(data)
+def crypt(key, salt, data, ops = None):
+  rtp = rtp_pop(data, ops)
 
   n = len(rtp.payload)
   ks = keystream(key, salt, rtp.ssrc, rtp.seq, n, 0)
@@ -165,11 +174,11 @@ class Context:
     self.srtcp_auth_key = kdf(self.master_key, self.master_salt, SRTCP_AUTH, 20)
     self.srtcp_salt = kdf(self.master_key, self.master_salt, SRTCP_SALT, 14)
 
-  def srtp_protect(self, data):
-    ciphered = crypt(self.srtp_cipher_key, self.srtp_salt, data)
+  def srtp_protect(self, data, ops):
+    ciphered = crypt(self.srtp_cipher_key, self.srtp_salt, data, ops)
     return ciphered + auth(self.srtp_auth_key, ciphered)[:self.taglen]
 
-  def srtp_unprotect(self, data): # 'data' point to RTP header
+  def srtp_unprotect(self, data, ops): # 'data' point to RTP header
     ciphered, tag = data[:-self.taglen], data[-self.taglen:]
     assert(len(tag) == self.taglen)
 
@@ -177,7 +186,7 @@ class Context:
       print('[srtp_unprotect] MAC mismatch!')
       return
 
-    plain = crypt(self.srtp_cipher_key, self.srtp_salt, ciphered)
+    plain = crypt(self.srtp_cipher_key, self.srtp_salt, ciphered, ops)
     return plain
 
 

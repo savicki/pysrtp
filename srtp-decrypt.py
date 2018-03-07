@@ -9,6 +9,7 @@ import datetime
 import sys, argparse
 
 Pkt = namedtuple('Pkt', 'ts caplen bytes')
+Ops = namedtuple('Ops', 'keep_ext')
 
 def gen_packets(name, offset=0):
   '''Parse and yield packets from pcap file.'''
@@ -56,9 +57,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-file', '--in-file', help='encrypted SRTP .pcap', type=str, required=True)
 parser.add_argument('-k', '--key', help='key material base64 encoded', type=str, required=True)
 parser.add_argument('-offset', '--rtp-offset', help='offset to RTP header, default 42 bytes', type=int, required=False, default=42)
+parser.add_argument('-ext', '--keep-ext', help='whether to keep RTP extension after crypto processing', type=int, required=False, default=1)
 
 
 args = parser.parse_args()
+
+ops = Ops(args.keep_ext != 0)
 
 raw = b64decode(args.key)
 keylen = len(raw)-14
@@ -68,7 +72,7 @@ assert(keylen in [16, 24, 32])
 ctx = Context(key, salt, 10) # auth tag length
 
 for pkt in gen_packets(args.in_file, args.rtp_offset):
-  plain = ctx.srtp_unprotect(pkt.bytes)
+  plain = ctx.srtp_unprotect(pkt.bytes, ops)
   assert(plain)
 
   pkt = Pkt(pkt.ts, pkt.caplen, plain)

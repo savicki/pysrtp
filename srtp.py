@@ -38,6 +38,11 @@ def rtp_pop(b, ops = None):
   assert(len(data) == 12)
   (a, b, seq, ts, ssrc) = unpack('!BBHII', data)
 
+  if ops:
+    if seq == 0 and ops.s_l == 2**16-1: # TODO: wtf
+      ops.roc = ops.roc + 1
+    ops.s_l = seq
+
   V = (a & 0xc0)>>6
   P = (a & 0x20)>>5
   X = (a & 0x10)>>4
@@ -131,11 +136,9 @@ def keystream(key, salt, ssrc, seq, n, roc=0):
   return data[:n]
 
 # data shall include rtp header as sent
-def crypt(key, salt, data, ops = None):
-  rtp = rtp_pop(data, ops)
-
+def crypt(key, salt, rtp, roc):
   n = len(rtp.payload)
-  ks = keystream(key, salt, rtp.ssrc, rtp.seq, n, 0)
+  ks = keystream(key, salt, rtp.ssrc, rtp.seq, n, roc)
   return rtp.hdr + xor(rtp.payload, ks)
 
 def auth(key, data, roc=0):
@@ -175,18 +178,20 @@ class Context:
     self.srtcp_salt = kdf(self.master_key, self.master_salt, SRTCP_SALT, 14)
 
   def srtp_protect(self, data, ops):
-    ciphered = crypt(self.srtp_cipher_key, self.srtp_salt, data, ops)
+    ciphered = crypt(self.srtp_cipher_key, self.srtp_salt, data, ops) # TODO: this broken now - 'data' is RTP tuple, not byte array
     return ciphered + auth(self.srtp_auth_key, ciphered)[:self.taglen]
 
   def srtp_unprotect(self, data, ops): # 'data' point to RTP header
     ciphered, tag = data[:-self.taglen], data[-self.taglen:]
     assert(len(tag) == self.taglen)
 
-    if auth(self.srtp_auth_key, ciphered)[:self.taglen] != tag:
+    rtp = rtp_pop(ciphered, ops)
+
+    if auth(self.srtp_auth_key, ciphered, ops.roc)[:self.taglen] != tag:
       print('[srtp_unprotect] MAC mismatch!')
       return
 
-    plain = crypt(self.srtp_cipher_key, self.srtp_salt, ciphered, ops)
+    plain = crypt(self.srtp_cipher_key, self.srtp_salt, rtp, ops.roc)
     return plain
 
 

@@ -9,7 +9,13 @@ import datetime
 import sys, argparse
 
 Pkt = namedtuple('Pkt', 'ts caplen bytes')
-Ops = namedtuple('Ops', 'keep_ext')
+
+class Ops:
+  def __init__(self, keep_ext):
+    self.keep_ext = keep_ext
+    self.roc = 0
+    self.s_l = 0
+
 
 def gen_packets(name, offset=0):
   '''Parse and yield packets from pcap file.'''
